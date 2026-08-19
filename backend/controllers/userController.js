@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import generateTokenAndSetCookie from "../utils/helpers/generateTokenAndSetCookie.js";
 import { v2 as cloudinary } from "cloudinary";
 import mongoose from "mongoose";
+import { upsertStreamUser } from "./streamController.js";
 
 const getUserProfile = async (req, res) => {
 	// We will fetch user profile either with username or userId
@@ -13,8 +14,10 @@ const getUserProfile = async (req, res) => {
 	try {
 		let user;
 
-		// query is userId
-		if (mongoose.Types.ObjectId.isValid(query)) {
+		// query is userId. Note: mongoose.Types.ObjectId.isValid() also accepts any
+		// 12-character string (a valid raw ObjectId byte length), so a 24-char hex
+		// check is required here to avoid misreading a 12-char username as an id.
+		if (/^[0-9a-fA-F]{24}$/.test(query)) {
 			user = await User.findOne({ _id: query }).select("-password").select("-updatedAt");
 		} else {
 			// query is username
@@ -52,6 +55,12 @@ const signupUser = async (req, res) => {
 		if (newUser) {
 			generateTokenAndSetCookie(newUser._id, res);
 
+			try {
+				await upsertStreamUser(newUser);
+			} catch (streamErr) {
+				console.log("Error upserting Stream user on signup: ", streamErr.message);
+			}
+
 			res.status(201).json({
 				_id: newUser._id,
 				name: newUser.name,
@@ -83,6 +92,12 @@ const loginUser = async (req, res) => {
 		}
 
 		generateTokenAndSetCookie(user._id, res);
+
+		try {
+			await upsertStreamUser(user);
+		} catch (streamErr) {
+			console.log("Error upserting Stream user on login: ", streamErr.message);
+		}
 
 		res.status(200).json({
 			_id: user._id,
